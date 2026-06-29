@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =========================================================
-#  Mail Viewer Bot - Installer
-#  - Install dependency Python (venv)
-#  - Install Docker + Local Bot API server (telegram-bot-api)
-#    supaya respon tombol/callback bot cepat (anti-lag)
-#  - Edit config.py via nano
+#  Mail Viewer Bot - Installer (1x jalan untuk VPS baru)
+#  - apt update + install python/venv/git/nano/curl
+#  - install Docker + Local Bot API server (telegram-bot-api, api_id/api_hash sudah disertakan)
+#  - di akhir: MINTA input TOKEN BOT & ID ADMIN (otomatis ditulis ke config.py)
+#  - IMAP (akun email) diedit MANUAL via nano
 #  Jalankan: bash install.sh
 # =========================================================
 set -e
@@ -125,11 +125,48 @@ $SUDO docker rm -f telegram-bot-api >/dev/null 2>&1 || true
 info "Local Bot API server jalan di http://127.0.0.1:8081 ✅"
 
 # ---------------------------------------------------------
-# 4. Edit konfigurasi bot
+# 4. Input token bot & ID admin (ditulis otomatis ke config.py)
 # ---------------------------------------------------------
 echo ""
-warn "Sekarang kita edit konfigurasi (token bot & akun IMAP)."
-warn "Setelah selesai edit di nano: tekan CTRL+O lalu ENTER untuk simpan, dan CTRL+X untuk keluar."
+info "Konfigurasi bot. Isi data berikut:"
+echo ""
+
+# Token bot (wajib, tidak boleh kosong)
+BOT_TOKEN=""
+while [ -z "$BOT_TOKEN" ]; do
+    read -r -p "👉 Masukkan TOKEN BOT (dari @BotFather): " BOT_TOKEN
+    if [ -z "$BOT_TOKEN" ]; then
+        warn "Token tidak boleh kosong."
+    fi
+done
+
+# ID admin (boleh lebih dari satu, pisahkan dengan spasi/koma)
+read -r -p "👉 Masukkan ID ADMIN Telegram (pisah spasi jika banyak, kosong = semua boleh): " ADMIN_RAW
+# Ubah jadi format list python: "123 456" -> "123, 456"
+ADMIN_LIST=$(echo "$ADMIN_RAW" | tr ',' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//' | sed 's/ /, /g')
+
+# Tulis ke config.py (ganti baris yang ada)
+python3 - "$BOT_TOKEN" "$ADMIN_LIST" <<'PYEOF'
+import re, sys
+token, admins = sys.argv[1], sys.argv[2]
+with open("config.py", "r", encoding="utf-8") as f:
+    src = f.read()
+src = re.sub(r'^TELEGRAM_TOKEN = .*$', f'TELEGRAM_TOKEN = "{token}"', src, count=1, flags=re.M)
+src = re.sub(r'^ADMIN_IDS = .*$', f'ADMIN_IDS = [{admins}]', src, count=1, flags=re.M)
+with open("config.py", "w", encoding="utf-8") as f:
+    f.write(src)
+print("config.py diperbarui.")
+PYEOF
+
+info "Token & ID admin tersimpan ke config.py ✅"
+
+# ---------------------------------------------------------
+# 5. Edit IMAP secara manual via nano
+# ---------------------------------------------------------
+echo ""
+warn "Sekarang edit akun IMAP (email penampung) secara MANUAL di nano."
+warn "Cari bagian IMAP_ACCOUNTS, isi user (email Gmail) & pass (App Password)."
+warn "Simpan: CTRL+O lalu ENTER. Keluar: CTRL+X."
 echo ""
 read -r -p "Tekan ENTER untuk membuka config.py di nano..."
 

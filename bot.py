@@ -34,6 +34,7 @@ logging.basicConfig(level=logging.INFO)
 
 user_email = {}        # simpan email terakhir tiap user
 chat_messages = {}     # chat_id -> set(message_id) untuk auto-hapus
+panel_msg = {}         # chat_id -> message_id panel aktif (1 pesan yang terus di-edit)
 
 # Hapus semua chat otomatis setelah sekian detik tidak ada aktivitas
 CLEANUP_DELAY = 600    # 10 menit
@@ -345,128 +346,133 @@ Date    : {safe_date}</pre>
 # =========================
 # TELEGRAM UI & UTILS
 # =========================
-def refresh_button():
+WELCOME_TEXT = (
+    "👋 <b>Mail Viewer Bot</b>\n\n"
+    "Bot untuk cek <b>pesan masuk / OTP</b> dari email kamu.\n"
+    "Klik tombol di bawah untuk mulai.\n\n"
+    "<i>ℹ️ Chat akan terhapus otomatis setelah 10 menit tidak ada aktivitas.</i>"
+)
+
+PROMPT_TEXT = "📧 <b>Kirim alamat email</b> yang ingin kamu cek inbox / OTP-nya."
+
+LOADING_TEXT = "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu..."
+
+MAX_RESULT_LEN = 3500
+
+
+def start_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Refresh Email", callback_data="refresh_last")],
-        [InlineKeyboardButton("📩 Cek Email Lain", callback_data="check_other")]
+        [InlineKeyboardButton("📥 Cek Pesan", callback_data="check_msg")],
+        [InlineKeyboardButton("❌ Close", callback_data="close")]
     ])
 
 
-def start_loading(msg, loop):
+def prompt_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Kembali", callback_data="menu")],
+        [InlineKeyboardButton("❌ Close", callback_data="close")]
+    ])
+
+
+def result_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_last")],
+        [InlineKeyboardButton("📩 Cek Email Lain", callback_data="check_msg")],
+        [InlineKeyboardButton("❌ Close", callback_data="close")]
+    ])
+
+
+async def edit_panel(bot, chat_id, message_id, text, reply_markup=None):
+    """Edit pesan panel. Return True kalau berhasil (atau isinya memang sudah sama)."""
+    try:
+        await bot.edit_message_text(
+            text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True
+        )
+        return True
+    except Exception as e:
+        # "message is not modified" -> pesan tetap ada, anggap sukses
+        if "not modified" in str(e).lower():
+            return True
+        return False
+
+
+def start_loading(bot, chat_id, message_id, loop):
     stop_loading = threading.Event()
 
     def loading_progress():
         frames = [
-            "▰▱▱▱▱▱▱▱▱▱",
-            "▰▰▱▱▱▱▱▱▱▱",
-            "▰▰▰▱▱▱▱▱▱▱",
-            "▰▰▰▰▱▱▱▱▱▱",
-            "▰▰▰▰▰▱▱▱▱▱",
-            "▰▰▰▰▰▰▱▱▱▱",
-            "▰▰▰▰▰▰▰▱▱▱",
-            "▰▰▰▰▰▰▰▰▱▱",
-            "▰▰▰▰▰▰▰▰▰▱",
-            "▰▰▰▰▰▰▰▰▰▰",
+            "▰▱▱▱▱▱▱▱▱▱", "▰▰▱▱▱▱▱▱▱▱", "▰▰▰▱▱▱▱▱▱▱", "▰▰▰▰▱▱▱▱▱▱",
+            "▰▰▰▰▰▱▱▱▱▱", "▰▰▰▰▰▰▱▱▱▱", "▰▰▰▰▰▰▰▱▱▱", "▰▰▰▰▰▰▰▰▱▱",
+            "▰▰▰▰▰▰▰▰▰▱", "▰▰▰▰▰▰▰▰▰▰",
         ]
-
         i = 0
 
-        async def edit_msg(frame):
-            try:
-                await msg.edit_text(
-                    f"╭─ 📬 <b>Mengecek Inbox</b>\n"
-                    f"│ {frame}\n"
-                    f"╰─ ⏳ Mohon tunggu...",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
+        async def do_edit(frame):
+            await edit_panel(
+                bot, chat_id, message_id,
+                f"╭─ 📬 <b>Mengecek Inbox</b>\n│ {frame}\n╰─ ⏳ Mohon tunggu..."
+            )
 
         while not stop_loading.is_set():
             bar = frames[i % len(frames)]
-            asyncio.run_coroutine_threadsafe(edit_msg(bar), loop)
+            asyncio.run_coroutine_threadsafe(do_edit(bar), loop)
             i += 1
             time.sleep(0.7)
 
     t = threading.Thread(target=loading_progress)
     t.daemon = True
     t.start()
-
     return stop_loading
 
 
-async def send_long_result(bot_msg, text, reply_markup=None):
-    """Edit pesan bot_msg dengan hasil. Kalau hasil terlalu panjang, sambung sebagai pesan baru.
-    Mengembalikan list message_id pesan tambahan (untuk auto-hapus)."""
-    max_len = 3500
-    parts = []
-    extra_ids = []
+async def run_check(context, chat_id, message_id, target):
+    """Cek inbox lalu EDIT panel (message_id) dengan hasilnya. 1 pesan saja."""
+    bot = context.bot
 
-    while len(text) > max_len:
-        cut = text.rfind("\n", 0, max_len)
-        if cut == -1:
-            cut = max_len
-        parts.append(text[:cut])
-        text = text[cut:]
+    # set ke loading dulu; kalau panel sudah tidak ada, buat ulang
+    ok = await edit_panel(bot, chat_id, message_id, LOADING_TEXT)
+    if not ok:
+        m = await bot.send_message(chat_id, LOADING_TEXT, parse_mode="HTML")
+        message_id = m.message_id
+        panel_msg[chat_id] = message_id
+        track(chat_id, message_id)
 
-    if text:
-        parts.append(text)
-
-    if len(parts) == 1:
-        try:
-            await bot_msg.edit_text(
-                parts[0],
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
-        except Exception:
-            pass
-        return extra_ids
-
-    try:
-        await bot_msg.edit_text(
-            parts[0],
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-    except Exception:
-        pass
-
-    for part in parts[1:-1]:
-        m = await bot_msg.reply_text(
-            part,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-        extra_ids.append(m.message_id)
-
-    m = await bot_msg.reply_text(
-        parts[-1],
-        parse_mode="HTML",
-        reply_markup=reply_markup,
-        disable_web_page_preview=True
-    )
-    extra_ids.append(m.message_id)
-    return extra_ids
-
-
-async def run_check(bot_msg, target, chat_id):
-    """Jalankan pengecekan inbox + animasi loading, lalu EDIT pesan bot_msg dengan hasil."""
     loop = asyncio.get_running_loop()
-    stop_loading = start_loading(bot_msg, loop)
+    stop_loading = start_loading(bot, chat_id, message_id, loop)
 
-    result = get_latest_email(target)
+    # IMAP itu blocking -> jalankan di thread executor supaya event loop & animasi tetap jalan
+    result = await loop.run_in_executor(None, get_latest_email, target)
 
     stop_loading.set()
     await asyncio.sleep(0.1)
 
-    # Tambahkan jam refresh -> menjamin isi pesan selalu berubah (anti "message not modified")
+    # potong kalau kepanjangan (bagian body tidak mengandung tag HTML, jadi aman dipotong)
+    if len(result) > MAX_RESULT_LEN:
+        result = result[:MAX_RESULT_LEN] + "\n…(dipotong)"
+
     now = datetime.now(pytz.timezone("Asia/Jakarta")).strftime("%H:%M:%S")
     result += f"\n\n<i>🕒 Diperbarui: {now} WIB</i>"
 
-    extra = await send_long_result(bot_msg, result, reply_markup=refresh_button())
-    track(chat_id, bot_msg.message_id, *extra)
+    await edit_panel(bot, chat_id, message_id, result, reply_markup=result_menu())
+    track(chat_id, message_id)
+
+
+async def show_panel(context, chat_id, text, reply_markup):
+    """Tampilkan/refresh panel sebagai 1 pesan. Edit kalau ada, buat baru kalau belum."""
+    pid = panel_msg.get(chat_id)
+    if pid and await edit_panel(context.bot, chat_id, pid, text, reply_markup):
+        return pid
+    m = await context.bot.send_message(
+        chat_id, text, parse_mode="HTML", reply_markup=reply_markup, disable_web_page_preview=True
+    )
+    panel_msg[chat_id] = m.message_id
+    track(chat_id, m.message_id)
+    return m.message_id
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -475,15 +481,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
-    track(chat_id, update.message.message_id)
 
-    m = await update.message.reply_text(
-        "👋 <b>Selamat datang di Mail Viewer Bot</b>\n\n"
-        "📧 Kirim alamat email yang ingin kamu cek inbox / OTP-nya.\n\n"
-        "<i>ℹ️ Semua chat akan terhapus otomatis setelah 10 menit tidak ada aktivitas.</i>",
-        parse_mode="HTML"
-    )
-    track(chat_id, m.message_id)
+    # hapus perintah /start dari user biar chat rapi
+    try:
+        await update.message.delete()
+    except Exception:
+        track(chat_id, update.message.message_id)
+
+    await show_panel(context, chat_id, WELCOME_TEXT, start_menu())
     schedule_cleanup(context, chat_id)
 
 
@@ -496,44 +501,52 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 Maaf, bot ini privat. Kamu tidak punya akses.")
         return
 
-    track(chat_id, update.message.message_id)
+    user_msg_id = update.message.message_id
 
     if text == "/refresh":
+        # hapus pesan command biar rapi
+        try:
+            await update.message.delete()
+        except Exception:
+            track(chat_id, user_msg_id)
+
         if user_id not in user_email:
-            m = await update.message.reply_text("❌ Belum ada email yang dicek.")
-            track(chat_id, m.message_id)
+            await show_panel(context, chat_id, "❌ Belum ada email yang dicek.", prompt_menu())
             schedule_cleanup(context, chat_id)
             return
 
-        target = user_email[user_id]
-        msg = await update.message.reply_text(
-            "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu...",
-            parse_mode="HTML"
-        )
-        await run_check(msg, target, chat_id)
+        pid = await show_panel(context, chat_id, LOADING_TEXT, None)
+        await run_check(context, chat_id, pid, user_email[user_id])
         schedule_cleanup(context, chat_id)
         return
 
     if "@" in text:
-        target = text.strip()
+        target = text
         user_email[user_id] = target
 
-        msg = await update.message.reply_text(
-            "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu...",
-            parse_mode="HTML"
-        )
-        await run_check(msg, target, chat_id)
+        # hapus pesan email dari user -> chat tetap rapi (cuma panel)
+        try:
+            await update.message.delete()
+        except Exception:
+            track(chat_id, user_msg_id)
+
+        pid = await show_panel(context, chat_id, LOADING_TEXT, None)
+        await run_check(context, chat_id, pid, target)
         schedule_cleanup(context, chat_id)
         return
 
-    m = await update.message.reply_text("❌ Kirim alamat email yang valid (mengandung @).")
-    track(chat_id, m.message_id)
+    # bukan email valid
+    try:
+        await update.message.delete()
+    except Exception:
+        track(chat_id, user_msg_id)
+    await show_panel(context, chat_id, "❌ Itu bukan email yang valid.\n\n" + PROMPT_TEXT, prompt_menu())
     schedule_cleanup(context, chat_id)
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    # Jawab callback DULUAN -> animasi loading di tombol langsung hilang (anti-ngendat)
+    # Jawab callback DULUAN -> spinner di tombol langsung hilang (anti-ngendat)
     await q.answer()
 
     user_id = q.from_user.id
@@ -547,28 +560,37 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
-    if data == "check_other":
+    # sinkronkan panel id dengan pesan tombol ini
+    panel_msg[chat_id] = q.message.message_id
+
+    if data == "close":
         user_email.pop(user_id, None)
+        panel_msg.pop(chat_id, None)
         try:
-            await q.edit_message_text("📧 Kirim email lain yang mau dicek.")
+            await q.message.delete()
         except Exception:
             pass
-        track(chat_id, q.message.message_id)
+        return
+
+    if data == "menu":
+        await edit_panel(context.bot, chat_id, q.message.message_id, WELCOME_TEXT, start_menu())
+        schedule_cleanup(context, chat_id)
+        return
+
+    if data == "check_msg":
+        await edit_panel(context.bot, chat_id, q.message.message_id, PROMPT_TEXT, prompt_menu())
         schedule_cleanup(context, chat_id)
         return
 
     if data == "refresh_last":
         if user_id not in user_email:
-            try:
-                await q.edit_message_text("❌ Belum ada email yang dicek.")
-            except Exception:
-                pass
+            await edit_panel(context.bot, chat_id, q.message.message_id,
+                             "❌ Belum ada email yang dicek.\n\n" + PROMPT_TEXT, prompt_menu())
             schedule_cleanup(context, chat_id)
             return
 
-        target = user_email[user_id]
         # EDIT pesan yang sama (tidak membuat pesan baru)
-        await run_check(q.message, target, chat_id)
+        await run_check(context, chat_id, q.message.message_id, user_email[user_id])
         schedule_cleanup(context, chat_id)
         return
 

@@ -1,6 +1,7 @@
 # =========================================================
-#  KONFIGURASI MAIL VIEWER BOT
-#  Edit file ini dengan: nano config.py
+#  CONTOH KONFIGURASI MAIL VIEWER BOT
+#  Salin jadi config.py lalu edit: cp config.example.py config.py && nano config.py
+#  (install.sh melakukan ini otomatis)
 # =========================================================
 
 # Token bot Telegram (dapatkan dari @BotFather).

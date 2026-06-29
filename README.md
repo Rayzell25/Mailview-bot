@@ -67,9 +67,12 @@ source venv/bin/activate && python3 bot.py
 ## 💬 Cara Pakai
 
 1. Buka chat bot di Telegram, kirim `/start`.
-2. Kirim alamat email yang ingin dicek.
-3. Bot menampilkan email terbaru + OTP (jika ada).
-4. Gunakan tombol **🔄 Refresh Email** atau **📩 Cek Email Lain**.
+2. Muncul panel dengan tombol **📥 Cek Pesan** dan **❌ Close**.
+3. Klik **Cek Pesan** → kirim alamat email yang ingin dicek.
+4. Bot menampilkan **1 email terbaru** + OTP (jika ada) pada panel yang sama.
+5. Tombol di hasil: **🔄 Refresh** (cek ulang), **📩 Cek Email Lain**, **❌ Close**.
+
+> Bot sengaja meng-edit **satu pesan yang sama** (tidak mengirim pesan baru terus) supaya chat tetap rapi. Pesan email yang kamu ketik juga otomatis dihapus, dan seluruh chat hilang otomatis setelah 10 menit idle.
 
 ## ⚡ Opsional: Local Bot API Server
 

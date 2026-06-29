@@ -131,6 +131,11 @@ echo ""
 info "Konfigurasi bot. Isi data berikut:"
 echo ""
 
+# Buat config.py dari contoh kalau belum ada (config.py TIDAK dilacak git -> aman dari git pull)
+if [ ! -f config.py ]; then
+    cp config.example.py config.py
+fi
+
 # Token bot (wajib, tidak boleh kosong)
 BOT_TOKEN=""
 while [ -z "$BOT_TOKEN" ]; do

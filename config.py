@@ -3,13 +3,20 @@
 #  Edit file ini dengan: nano config.py
 # =========================================================
 
-# Token bot Telegram (dapatkan dari @BotFather)
+# Token bot Telegram (dapatkan dari @BotFather).
+# Biasanya diisi otomatis oleh install.sh saat instalasi.
 TELEGRAM_TOKEN = "ISI_TOKEN_BOT_TELEGRAM"
+
+# ID admin Telegram (user id berupa angka). Hanya admin yang boleh memakai bot.
+# Bisa lebih dari satu: ADMIN_IDS = [12345678, 98765432]
+# Kalau dikosongkan ( [] ), SEMUA orang boleh memakai bot.
+# Biasanya diisi otomatis oleh install.sh saat instalasi.
+ADMIN_IDS = []
 
 # Server IMAP. Untuk Gmail biarkan seperti ini.
 IMAP_HOST = "imap.gmail.com"
 
-# Daftar akun email penampung (IMAP).
+# Daftar akun email penampung (IMAP). EDIT MANUAL via: nano config.py
 # Untuk Gmail, "pass" WAJIB pakai App Password (bukan password biasa).
 # Cara buat App Password: https://myaccount.google.com/apppasswords
 # Bisa isi lebih dari satu akun, dicek paralel.

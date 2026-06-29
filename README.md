@@ -19,27 +19,35 @@ Bot Telegram sederhana untuk **mengecek inbox / OTP** dari email masuk lewat IMA
 - Akun Gmail dengan **App Password** (bukan password biasa) — buat di https://myaccount.google.com/apppasswords
 - Token bot Telegram dari [@BotFather](https://t.me/BotFather)
 
-## 📦 Instalasi
+## 📦 Instalasi (VPS baru, sekali jalan)
 
-1. Clone repositori ini:
-   ```bash
-   git clone https://github.com/Rayzell25/Mailview-bot.git
-   cd Mailview-bot
-   ```
+VPS baru biasanya belum ada `git`, jadi pasang dulu lalu clone & jalankan installer:
 
-2. Jalankan installer (otomatis `apt update`, install Python/pip/venv/nano, dan dependency):
-   ```bash
-   bash install.sh
-   ```
+```bash
+apt update && apt install -y git
+git clone https://github.com/Rayzell25/Mailview-bot.git
+cd Mailview-bot
+bash install.sh
+```
 
-3. Di akhir proses, file `config.py` akan otomatis terbuka di **nano**. Isi:
-   - `TELEGRAM_TOKEN` — token bot dari @BotFather
-   - `IMAP_HOST` — biarkan `imap.gmail.com` untuk Gmail
-   - `IMAP_ACCOUNTS` — daftar akun penampung (`user` + App Password)
+`install.sh` otomatis melakukan **semuanya**:
+- `apt update` + install `python3`, `pip`, `venv`, `git`, `nano`, `curl`
+- install **Docker** + jalankan **Local Bot API server** (`telegram-bot-api`, `api_id`/`api_hash` sudah disertakan) di `127.0.0.1:8081` untuk respon tombol cepat
+- install dependency Python (virtualenv)
+- di akhir, **meminta input**:
+  - 👉 **TOKEN BOT** (dari [@BotFather](https://t.me/BotFather))
+  - 👉 **ID ADMIN** Telegram (boleh lebih dari satu, pisah spasi; kosongkan kalau ingin semua orang boleh pakai)
 
-   Simpan di nano: tekan `CTRL+O` lalu `ENTER`, keluar dengan `CTRL+X`.
+  Keduanya otomatis ditulis ke `config.py`.
+- lalu membuka `config.py` di **nano** untuk kamu isi bagian **IMAP_ACCOUNTS** secara manual:
 
-   > Untuk mengedit lagi nanti: `nano config.py`
+  ```python
+  IMAP_ACCOUNTS = [
+      {"user": "emailkamu@gmail.com", "pass": "app-password-16-digit"},
+  ]
+  ```
+
+  > Gmail WAJIB pakai **App Password** (buat di https://myaccount.google.com/apppasswords). Simpan di nano: `CTRL+O` lalu `ENTER`, keluar `CTRL+X`.
 
 ## 🏁 Menjalankan Bot
 

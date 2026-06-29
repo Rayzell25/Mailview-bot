@@ -17,6 +17,12 @@ from telegram.ext import (
 
 from config import TELEGRAM_TOKEN, IMAP_HOST, IMAP_ACCOUNTS
 
+# ID admin (whitelist akses). Kalau kosong -> semua orang boleh pakai.
+try:
+    from config import ADMIN_IDS
+except Exception:
+    ADMIN_IDS = []
+
 # Opsi Local Bot API (opsional). Kalau tidak ada di config, pakai Telegram Cloud biasa.
 try:
     from config import USE_LOCAL_BOT_API, LOCAL_BOT_API_URL
@@ -31,6 +37,13 @@ chat_messages = {}     # chat_id -> set(message_id) untuk auto-hapus
 
 # Hapus semua chat otomatis setelah sekian detik tidak ada aktivitas
 CLEANUP_DELAY = 600    # 10 menit
+
+
+def is_allowed(user_id):
+    """True kalau user boleh memakai bot. ADMIN_IDS kosong = bebas semua."""
+    if not ADMIN_IDS:
+        return True
+    return user_id in ADMIN_IDS
 
 
 # =========================
@@ -457,6 +470,10 @@ async def run_check(bot_msg, target, chat_id):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_user.id):
+        await update.message.reply_text("🚫 Maaf, bot ini privat. Kamu tidak punya akses.")
+        return
+
     chat_id = update.effective_chat.id
     track(chat_id, update.message.message_id)
 
@@ -474,6 +491,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("🚫 Maaf, bot ini privat. Kamu tidak punya akses.")
+        return
 
     track(chat_id, update.message.message_id)
 
@@ -518,6 +539,13 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = q.from_user.id
     chat_id = q.message.chat.id
     data = q.data
+
+    if not is_allowed(user_id):
+        try:
+            await q.answer("🚫 Akses ditolak.", show_alert=True)
+        except Exception:
+            pass
+        return
 
     if data == "check_other":
         user_email.pop(user_id, None)

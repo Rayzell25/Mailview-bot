@@ -19,9 +19,9 @@ IMAP_ACCOUNTS = [
 ]
 
 # =========================================================
-#  OPSIONAL: Local Bot API Server (untuk respon lebih cepat)
-#  Biarkan False kalau kamu belum punya server telegram-bot-api sendiri.
-#  Kalau diaktifkan, pastikan server jalan di LOCAL_BOT_API_URL.
+#  Local Bot API Server (untuk RESPON TOMBOL lebih cepat)
+#  install.sh otomatis memasang server ini via Docker di port 8081,
+#  jadi biarkan True. Set False kalau mau pakai server resmi Telegram.
 # =========================================================
-USE_LOCAL_BOT_API = False
+USE_LOCAL_BOT_API = True
 LOCAL_BOT_API_URL = "http://127.0.0.1:8081"

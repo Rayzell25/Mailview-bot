@@ -8,6 +8,7 @@ import email.utils
 import pytz
 import threading
 import asyncio
+from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -25,7 +26,45 @@ except Exception:
 
 logging.basicConfig(level=logging.INFO)
 
-user_email = {}  # simpan email terakhir tiap user
+user_email = {}        # simpan email terakhir tiap user
+chat_messages = {}     # chat_id -> set(message_id) untuk auto-hapus
+
+# Hapus semua chat otomatis setelah sekian detik tidak ada aktivitas
+CLEANUP_DELAY = 600    # 10 menit
+
+
+# =========================
+# AUTO-DELETE / TRACKING
+# =========================
+def track(chat_id, *message_ids):
+    """Catat message_id agar bisa dihapus otomatis nanti."""
+    s = chat_messages.setdefault(chat_id, set())
+    for mid in message_ids:
+        if mid:
+            s.add(mid)
+
+
+async def _cleanup_job(context: ContextTypes.DEFAULT_TYPE):
+    """Hapus semua pesan yang tercatat di sebuah chat (dipanggil JobQueue)."""
+    chat_id = context.job.chat_id
+    ids = chat_messages.pop(chat_id, set())
+    for mid in list(ids):
+        try:
+            await context.bot.delete_message(chat_id, mid)
+        except Exception:
+            pass
+    # bersihkan email terakhir (chat private: chat_id == user_id)
+    user_email.pop(chat_id, None)
+
+
+def schedule_cleanup(context: ContextTypes.DEFAULT_TYPE, chat_id):
+    """Reset timer auto-hapus 10 menit setiap ada aktivitas."""
+    jq = getattr(context, "job_queue", None)
+    if jq is None:
+        return
+    for job in jq.get_jobs_by_name(f"cleanup_{chat_id}"):
+        job.schedule_removal()
+    jq.run_once(_cleanup_job, CLEANUP_DELAY, chat_id=chat_id, name=f"cleanup_{chat_id}")
 
 
 # =========================
@@ -344,8 +383,11 @@ def start_loading(msg, loop):
 
 
 async def send_long_result(bot_msg, text, reply_markup=None):
+    """Edit pesan bot_msg dengan hasil. Kalau hasil terlalu panjang, sambung sebagai pesan baru.
+    Mengembalikan list message_id pesan tambahan (untuk auto-hapus)."""
     max_len = 3500
     parts = []
+    extra_ids = []
 
     while len(text) > max_len:
         cut = text.rfind("\n", 0, max_len)
@@ -358,37 +400,46 @@ async def send_long_result(bot_msg, text, reply_markup=None):
         parts.append(text)
 
     if len(parts) == 1:
+        try:
+            await bot_msg.edit_text(
+                parts[0],
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+                disable_web_page_preview=True
+            )
+        except Exception:
+            pass
+        return extra_ids
+
+    try:
         await bot_msg.edit_text(
             parts[0],
             parse_mode="HTML",
-            reply_markup=reply_markup,
             disable_web_page_preview=True
         )
-        return
-
-    await bot_msg.edit_text(
-        parts[0],
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
+    except Exception:
+        pass
 
     for part in parts[1:-1]:
-        await bot_msg.reply_text(
+        m = await bot_msg.reply_text(
             part,
             parse_mode="HTML",
             disable_web_page_preview=True
         )
+        extra_ids.append(m.message_id)
 
-    await bot_msg.reply_text(
+    m = await bot_msg.reply_text(
         parts[-1],
         parse_mode="HTML",
         reply_markup=reply_markup,
         disable_web_page_preview=True
     )
+    extra_ids.append(m.message_id)
+    return extra_ids
 
 
-async def run_check(bot_msg, target):
-    """Jalankan pengecekan inbox + animasi loading, lalu kirim hasil."""
+async def run_check(bot_msg, target, chat_id):
+    """Jalankan pengecekan inbox + animasi loading, lalu EDIT pesan bot_msg dengan hasil."""
     loop = asyncio.get_running_loop()
     stop_loading = start_loading(bot_msg, loop)
 
@@ -397,24 +448,40 @@ async def run_check(bot_msg, target):
     stop_loading.set()
     await asyncio.sleep(0.1)
 
-    await send_long_result(bot_msg, result, reply_markup=refresh_button())
+    # Tambahkan jam refresh -> menjamin isi pesan selalu berubah (anti "message not modified")
+    now = datetime.now(pytz.timezone("Asia/Jakarta")).strftime("%H:%M:%S")
+    result += f"\n\n<i>🕒 Diperbarui: {now} WIB</i>"
+
+    extra = await send_long_result(bot_msg, result, reply_markup=refresh_button())
+    track(chat_id, bot_msg.message_id, *extra)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    chat_id = update.effective_chat.id
+    track(chat_id, update.message.message_id)
+
+    m = await update.message.reply_text(
         "👋 <b>Selamat datang di Mail Viewer Bot</b>\n\n"
-        "📧 Kirim alamat email yang ingin kamu cek inbox / OTP-nya.",
+        "📧 Kirim alamat email yang ingin kamu cek inbox / OTP-nya.\n\n"
+        "<i>ℹ️ Semua chat akan terhapus otomatis setelah 10 menit tidak ada aktivitas.</i>",
         parse_mode="HTML"
     )
+    track(chat_id, m.message_id)
+    schedule_cleanup(context, chat_id)
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.message.from_user.id
+    chat_id = update.effective_chat.id
+
+    track(chat_id, update.message.message_id)
 
     if text == "/refresh":
         if user_id not in user_email:
-            await update.message.reply_text("❌ Belum ada email yang dicek.")
+            m = await update.message.reply_text("❌ Belum ada email yang dicek.")
+            track(chat_id, m.message_id)
+            schedule_cleanup(context, chat_id)
             return
 
         target = user_email[user_id]
@@ -422,7 +489,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu...",
             parse_mode="HTML"
         )
-        await run_check(msg, target)
+        await run_check(msg, target, chat_id)
+        schedule_cleanup(context, chat_id)
         return
 
     if "@" in text:
@@ -433,41 +501,47 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu...",
             parse_mode="HTML"
         )
-        await run_check(msg, target)
+        await run_check(msg, target, chat_id)
+        schedule_cleanup(context, chat_id)
         return
 
-    await update.message.reply_text("❌ Kirim alamat email yang valid (mengandung @).")
+    m = await update.message.reply_text("❌ Kirim alamat email yang valid (mengandung @).")
+    track(chat_id, m.message_id)
+    schedule_cleanup(context, chat_id)
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    # Jawab callback DULUAN -> animasi loading di tombol langsung hilang (anti-ngendat)
     await q.answer()
 
     user_id = q.from_user.id
+    chat_id = q.message.chat.id
     data = q.data
 
     if data == "check_other":
         user_email.pop(user_id, None)
-        await q.edit_message_text("📧 Kirim email lain yang mau dicek.")
+        try:
+            await q.edit_message_text("📧 Kirim email lain yang mau dicek.")
+        except Exception:
+            pass
+        track(chat_id, q.message.message_id)
+        schedule_cleanup(context, chat_id)
         return
 
     if data == "refresh_last":
         if user_id not in user_email:
-            await q.edit_message_text("❌ Belum ada email yang dicek.")
+            try:
+                await q.edit_message_text("❌ Belum ada email yang dicek.")
+            except Exception:
+                pass
+            schedule_cleanup(context, chat_id)
             return
 
         target = user_email[user_id]
-        msg = await q.message.reply_text(
-            "╭─ 📬 <b>Mengecek Inbox</b>\n│ ▱▱▱▱▱▱▱▱▱▱\n╰─ ⏳ Mohon tunggu...",
-            parse_mode="HTML"
-        )
-        await run_check(msg, target)
-
-        # Hapus pesan lama agar chat bersih
-        try:
-            await q.message.delete()
-        except Exception:
-            pass
+        # EDIT pesan yang sama (tidak membuat pesan baru)
+        await run_check(q.message, target, chat_id)
+        schedule_cleanup(context, chat_id)
         return
 
 
@@ -477,7 +551,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     builder = Application.builder().token(TELEGRAM_TOKEN)
 
-    # Pakai Local Bot API server hanya jika diaktifkan di config
+    # Pakai Local Bot API server hanya jika diaktifkan di config (respon tombol lebih cepat)
     if USE_LOCAL_BOT_API:
         builder = (
             builder

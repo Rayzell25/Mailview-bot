@@ -2,7 +2,7 @@
 # =========================================================
 #  Mail Viewer Bot - Installer
 #  - Install dependency Python (venv)
-#  - Install Docker + Local Bot API server (telegram-bot-api) + Redis
+#  - Install Docker + Local Bot API server (telegram-bot-api)
 #    supaya respon tombol/callback bot cepat (anti-lag)
 #  - Edit config.py via nano
 #  Jalankan: bash install.sh
@@ -79,9 +79,9 @@ else
 fi
 
 # ---------------------------------------------------------
-# 3. Setup Local Bot API server + Redis (Docker)
+# 3. Setup Local Bot API server (Docker)
 # ---------------------------------------------------------
-info "Menyiapkan Local Bot API server (telegram-bot-api) + Redis..."
+info "Menyiapkan Local Bot API server (telegram-bot-api)..."
 mkdir -p bot-api
 
 cat > bot-api/.env <<EOF
@@ -90,7 +90,7 @@ TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
 EOF
 
 cat > bot-api/docker-compose.yml <<'EOF'
-# Local Bot API server + Redis untuk respon bot yang cepat.
+# Local Bot API server untuk respon bot yang cepat.
 # Image telegram-bot-api WAJIB versi terbaru (9.4+) supaya fitur terbaru dikenali.
 services:
   telegram-bot-api:
@@ -112,25 +112,14 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  redis:
-    image: redis:7-alpine
-    container_name: bot-redis
-    restart: always
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - bot-redis-data:/data
-
 volumes:
   telegram-bot-api-data:
     name: telegram-bot-api-data
-  bot-redis-data:
-    name: bot-redis-data
 EOF
 
 info "Menarik image terbaru & menjalankan container..."
 # Hapus container lama bernama sama (kalau ada) agar tidak bentrok saat re-run
-$SUDO docker rm -f telegram-bot-api bot-redis >/dev/null 2>&1 || true
+$SUDO docker rm -f telegram-bot-api >/dev/null 2>&1 || true
 ( cd bot-api && $SUDO $DC pull && $SUDO $DC up -d )
 
 info "Local Bot API server jalan di http://127.0.0.1:8081 ✅"

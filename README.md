@@ -1,53 +1,75 @@
-# ⚡ Cloudflare Mail Router Bot (TMAIL1) ⚡
+# 📬 Mail Viewer Bot
 
-Bot Telegram untuk mengelola Cloudflare Email Routing Rules (Email Forwarding) dan melakukan pengecekan inbox email masuk (IMAP) secara instan, aman, dan super cepat.
+Bot Telegram sederhana untuk **mengecek inbox / OTP** dari email masuk lewat IMAP (Gmail), langsung dari Telegram. Cepat karena memindai semua akun penampung secara paralel (multi-threading) dan otomatis mengekstrak kode OTP.
 
-## 🚀 Fitur Utama
+> Catatan: Fitur Create / Delete / List email forwarding (Cloudflare) sudah dihapus. Bot ini fokus **hanya untuk cek inbox**.
 
-- **➕ Create Forwarding Rules**: Mendukung pembuatan email forwarding manual (custom nama) maupun otomatis (generate random).
-- **🎲 Generate Random Names (Secugen Method)**: Membuat nama email acak sepanjang 9 karakter berbasis vokal-konsonan berseling (mudah dibaca) serta dijamin **100% bebas duplikat**. Jumlah email yang dibuat diinput secara manual oleh user.
-- **📋 Auto Pagination Domain List**: Membaca seluruh domain yang ada di akun Cloudflare Anda secara lengkap (mendukung akun dengan puluhan/ratusan domain) dan menyajikannya dalam format halaman interaktif (6 baris/12 domain per halaman).
-- **🗑️ Multi Delete Rules**: Mempermudah penghapusan banyak email rules sekaligus secara bersamaan.
-- **📬 Fast Inbox Email Checker**: Memindai seluruh inbox email secara bersamaan menggunakan teknologi multi-threading (`ThreadPoolExecutor`), memotong waktu tunggu hingga setengahnya.
-- **🔄 Clean UI & Navigation**: Navigasi antar-menu yang mulus dengan auto-edit dan auto-delete pesan lama agar ruang obrolan Telegram tetap bersih dari sampah chat history.
+## 🚀 Fitur
+
+- 📥 **Cek Inbox**: Kirim alamat email, bot menampilkan email terbaru yang masuk.
+- 🔑 **Auto Extract OTP**: Mendeteksi kode OTP 4-6 digit dari isi email.
+- ⚡ **Multi-Account Paralel**: Memindai beberapa akun IMAP sekaligus dengan `ThreadPoolExecutor`.
+- 🧹 **Cek INBOX + SPAM**: Otomatis ikut memeriksa folder Spam Gmail.
+- 🔄 **Refresh & Cek Email Lain**: Tombol cepat tanpa ketik ulang.
 
 ## ⚙️ Persyaratan
+
+- VPS / server Linux (Debian/Ubuntu) dengan akses `apt`
 - Python 3.8+
-- Akun Cloudflare dengan Email Routing diaktifkan
-- Akun Gmail/IMAP untuk penampungan email forwarding
+- Akun Gmail dengan **App Password** (bukan password biasa) — buat di https://myaccount.google.com/apppasswords
+- Token bot Telegram dari [@BotFather](https://t.me/BotFather)
 
 ## 📦 Instalasi
 
 1. Clone repositori ini:
    ```bash
-   git clone git@github.com:dadanr6699/cftmail.git
-   cd cftmail
+   git clone https://github.com/Rayzell25/Mailview-bot.git
+   cd Mailview-bot
    ```
 
-2. Instal dependensi yang diperlukan:
+2. Jalankan installer (otomatis `apt update`, install Python/pip/venv/nano, dan dependency):
    ```bash
-   pip install -r requirements.txt
+   bash install.sh
    ```
 
-3. Konfigurasi kredensial pada file `config.py`:
-   - `TELEGRAM_TOKEN`: Token bot Telegram Anda.
-   - `CF_API_TOKEN`: API Token Cloudflare Anda (pastikan memiliki izin edit Zone & Email Routing).
-   - `CF_ACCOUNT_ID`: Account ID Cloudflare Anda.
-   - `DESTINATION_EMAIL`: Alamat email tujuan forward.
-   - `IMAP_HOST`: Alamat host IMAP penampung email.
-   - `ACCOUNTS`: Daftar user & password (app password) akun penampung email.
+3. Di akhir proses, file `config.py` akan otomatis terbuka di **nano**. Isi:
+   - `TELEGRAM_TOKEN` — token bot dari @BotFather
+   - `IMAP_HOST` — biarkan `imap.gmail.com` untuk Gmail
+   - `IMAP_ACCOUNTS` — daftar akun penampung (`user` + App Password)
 
-## 🏁 Menjalankan Bot dengan PM2
+   Simpan di nano: tekan `CTRL+O` lalu `ENTER`, keluar dengan `CTRL+X`.
 
-Untuk memastikan bot berjalan secara terus-menerus di latar belakang, gunakan PM2:
+   > Untuk mengedit lagi nanti: `nano config.py`
+
+## 🏁 Menjalankan Bot
 
 ```bash
-# Menjalankan bot
-pm2 start bot.py --name "tmail1-bot" --interpreter python3
-
-# Melihat status
-pm2 status tmail1-bot
-
-# Melihat log bot
-pm2 logs tmail1-bot
+source venv/bin/activate
+python3 bot.py
 ```
+
+Agar tetap jalan di background, gunakan `screen` (atau tmux/systemd):
+
+```bash
+screen -S mailbot
+source venv/bin/activate && python3 bot.py
+# lepas screen: CTRL+A lalu D
+```
+
+## 💬 Cara Pakai
+
+1. Buka chat bot di Telegram, kirim `/start`.
+2. Kirim alamat email yang ingin dicek.
+3. Bot menampilkan email terbaru + OTP (jika ada).
+4. Gunakan tombol **🔄 Refresh Email** atau **📩 Cek Email Lain**.
+
+## ⚡ Opsional: Local Bot API Server
+
+Kalau punya server `telegram-bot-api` sendiri (untuk respon lebih cepat), set di `config.py`:
+
+```python
+USE_LOCAL_BOT_API = True
+LOCAL_BOT_API_URL = "http://127.0.0.1:8081"
+```
+
+Biarkan `False` jika belum punya — bot akan pakai Telegram Cloud biasa.

@@ -129,6 +129,8 @@ volumes:
 EOF
 
 info "Menarik image terbaru & menjalankan container..."
+# Hapus container lama bernama sama (kalau ada) agar tidak bentrok saat re-run
+$SUDO docker rm -f telegram-bot-api bot-redis >/dev/null 2>&1 || true
 ( cd bot-api && $SUDO $DC pull && $SUDO $DC up -d )
 
 info "Local Bot API server jalan di http://127.0.0.1:8081 ✅"
